@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>귓속말게임</title>
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #11001c;
+            --card-bg: #22013b;
+            --neon-pink: #ff00ff;
+            --neon-purple: #9d00ff;
+            --neon-blue: #00ffff;
+            --neon-green: #00ffcc;
+            --neon-orange: #ff6600;
+            --neon-red: #ff0055;
+            --text-color: #ffffff;
+            --font-family: 'Pretendard', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            height: 100dvh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            padding: 15px;
+        }
+
+        #app {
+            width: 100%;
+            max-width: 420px;
+            height: 100%;
+            max-height: 820px;
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(157, 0, 255, 0.3);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(157, 0, 255, 0.2);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 18px;
+            transition: all 0.3s ease;
+        }
+
+        .screen {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .screen::-webkit-scrollbar {
+            display: none;
+        }
+
+        .screen.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        /* 1. 메인 화면 */
+        .header {
+            text-align: center;
+            margin-bottom: 12px;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .top-nav {
+            display: flex;
+            justify-content: flex-start;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        .back-home-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: #e9e9f2;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .back-home-btn::before {
+            content: '←';
+            font-size: 0.95rem;
+        }
+
+        .back-home-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(0, 255, 255, 0.35);
+            transform: translateY(-1px);
+        }
+
+        .back-home-btn:active {
+            transform: scale(0.97);
+        }
+
+        .main-title {
+            font-size: 2.2rem;
+            font-weight: 900;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--neon-blue), var(--neon-pink));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(255, 0, 255, 0.3);
+            letter-spacing: -1.5px;
+        }
+
+        .title-img {
+            max-width: 85%;
+            height: auto;
+            max-height: 90px;
+            margin-bottom: 12px;
+            object-fit: contain;
+            animation: neonPulse 1.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes neonPulse {
+            0% {
+                filter: drop-shadow(0 0 10px rgba(255, 0, 255, 0.5)) drop-shadow(0 0 20px rgba(0, 255, 255, 0.3));
+                transform: scale(1);
+            }
+
+            100% {
+                filter: drop-shadow(0 0 15px rgba(255, 0, 100, 0.9)) drop-shadow(0 0 30px rgba(0, 255, 255, 0.7));
+                transform: scale(1.03);
+            }
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #ddd;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            word-break: keep-all;
+            margin-top: 20px;
+            margin-bottom: 25px;
+        }
+
+        /* 체크박스 설정 */
+        .settings-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            flex-shrink: 0;
+        }
+
+        .custom-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            color: #ddd;
+            font-size: 0.95rem;
+            user-select: none;
+            transition: color 0.2s;
+        }
+
+        .custom-checkbox:hover {
+            color: #fff;
+        }
+
+        .custom-checkbox input {
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.5);
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s;
+            outline: none;
+            flex-shrink: 0;
+        }
+
+        .custom-checkbox input:checked {
+            background: var(--neon-purple);
+            border-color: var(--neon-purple);
+            box-shadow: 0 0 10px rgba(157, 0, 255, 0.5);
+        }
+
+        .custom-checkbox input:checked::after {
+            content: '✔';
+            position: absolute;
+            color: white;
+            font-size: 14px;
+            font-weight: 900;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* 설명 보기 버튼 */
+        .info-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+            width: 100%;
+            flex-shrink: 0;
+        }
+
+        .btn-info {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #ddd;
+            padding: 10px 24px;
+            border-radius: 16px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-info:active {
+            transform: scale(0.95);
+        }
+
+        .btn-info:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .flavor-select {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        /* 맛 선택 버튼 */
+        .flavor-btn {
+            border-radius: 14px;
+            padding: 14px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+            font-family: inherit;
+            text-align: center;
+        }
+
+        .flavor-btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-mild {
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid var(--neon-blue);
+        }
+
+        .btn-normal {
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid var(--neon-purple);
+        }
+
+        .btn-hot {
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid var(--neon-pink);
+        }
+
+        .btn-random {
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid #ffffff;
+        }
+
+        .btn-mild:hover {
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+        }
+
+        .btn-normal:hover {
+            box-shadow: 0 0 15px rgba(157, 0, 255, 0.4);
+        }
+
+        .btn-hot:hover {
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.4);
+        }
+
+        .btn-random:hover {
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
+        }
+
+        .custom-input-group {
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 18px;
+            border-top: 1px dashed rgba(255, 255, 255, 0.2);
+            flex-shrink: 0;
+        }
+
+        .custom-input {
+            width: 100%;
+            min-height: 50px;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            font-family: inherit;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.2s;
+            text-align: center;
+            resize: none;
+            line-height: 1.4;
+        }
+
+        .custom-input::placeholder {
+            color: #777;
+            font-weight: 400;
+            font-size: 0.95rem;
+        }
+
+        .custom-input:focus {
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        .btn-custom {
+            background: linear-gradient(90deg, var(--neon-purple), var(--neon-pink));
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-weight: 800;
+            font-size: 1.05rem;
+            cursor: pointer;
+            font-family: inherit;
+            box-shadow: 0 4px 15px rgba(255, 0, 255, 0.3);
+            transition: all 0.3s;
+        }
+
+        .btn-custom:disabled {
+            background: #2a2a2a;
+            color: #555;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .btn-custom:not(:disabled):active {
+            transform: scale(0.96);
+        }
+
+        .app-reco-card {
+            margin-top: 10px;
+            padding: 14px;
+            border-radius: 16px;
+            background:
+                radial-gradient(circle at top right, rgba(255, 102, 0, 0.16), transparent 34%),
+                linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+            border: 1px solid rgba(0, 255, 255, 0.18);
+            box-shadow: inset 0 0 18px rgba(0, 255, 255, 0.06), 0 10px 24px rgba(0, 0, 0, 0.18);
+            flex-shrink: 0;
+        }
+
+        .app-reco-card strong {
+            display: block;
+            color: #fff3dd;
+            font-size: 0.96rem;
+            line-height: 1.35;
+            word-break: keep-all;
+        }
+
+        .app-reco-card p {
+            margin-top: 8px;
+            color: rgba(232, 241, 255, 0.78);
+            font-size: 0.84rem;
+            line-height: 1.5;
+            word-break: keep-all;
+        }
+
+        .app-reco-btn {
+            width: 100%;
+            margin-top: 12px;
+            padding: 13px 14px;
+            border: 0;
+            border-radius: 14px;
+            background: linear-gradient(90deg, rgba(0, 255, 255, 0.92), rgba(157, 0, 255, 0.95));
+            color: #14041f;
+            font-size: 0.98rem;
+            font-weight: 900;
+            font-family: inherit;
+            cursor: pointer;
+            box-shadow: 0 10px 22px rgba(0, 255, 255, 0.2);
+            transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+        }
+
+        .app-reco-btn:hover {
+            transform: translateY(-1px);
+            filter: saturate(1.04);
+            box-shadow: 0 14px 24px rgba(0, 255, 255, 0.24);
+        }
+
+        .app-reco-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* 2. 게임 화면 */
+        #game-screen {
+            justify-content: space-between;
+        }
+
+        /* ----- 변경된 안내 문구 테마 시작 ----- */
+        .instruction-box {
+            text-align: left;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            transition: all 0.3s;
+            flex-shrink: 0;
+            /* 기본 스타일 (순한 맛과 동일) */
+            background: rgba(0, 255, 255, 0.05);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-left: 5px solid var(--neon-blue);
+        }
+
+        .instruction-box p {
+            font-size: 0.95rem;
+            font-weight: 600;
+            line-height: 1.4;
+            word-break: keep-all;
+            transition: color 0.3s;
+            color: var(--neon-blue);
+        }
+
+        /* 맛별 동적 테마 클래스 */
+        .instruction-box.mild {
+            background: rgba(0, 255, 255, 0.05);
+            border-color: rgba(0, 255, 255, 0.2);
+            border-left-color: var(--neon-blue);
+        }
+
+        .instruction-box.mild p {
+            color: var(--neon-blue);
+        }
+
+        .instruction-box.normal {
+            background: rgba(157, 0, 255, 0.05);
+            border-color: rgba(157, 0, 255, 0.2);
+            border-left-color: var(--neon-purple);
+        }
+
+        /* 보라색 텍스트 가독성을 위해 살짝 밝게 조정 */
+        .instruction-box.normal p {
+            color: #d680ff;
+        }
+
+        .instruction-box.hot {
+            background: rgba(255, 0, 255, 0.05);
+            border-color: rgba(255, 0, 255, 0.2);
+            border-left-color: var(--neon-pink);
+        }
+
+        .instruction-box.hot p {
+            color: var(--neon-pink);
+        }
+
+        .instruction-box.random {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.2);
+            border-left-color: #ffffff;
+        }
+
+        .instruction-box.random p {
+            color: #ffffff;
+        }
+
+        .instruction-box.custom {
+            background: rgba(0, 255, 204, 0.05);
+            border-color: rgba(0, 255, 204, 0.2);
+            border-left-color: var(--neon-green);
+        }
+
+        .instruction-box.custom p {
+            color: var(--neon-green);
+        }
+
+        /* ----- 변경된 안내 문구 테마 끝 ----- */
+
+        .question-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+
+        /* 수위별 동적 테두리 */
+        .question-card {
+            width: 100%;
+            min-height: 180px;
+            border: 2px solid var(--neon-purple);
+            background: #05000a;
+            border-radius: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            text-align: center;
+            font-size: 1.25rem;
+            font-weight: 700;
+            word-break: keep-all;
+            line-height: 1.4;
+            box-shadow: 0 0 15px rgba(157, 0, 255, 0.4), inset 0 0 20px rgba(157, 0, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .question-card.mild {
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3), inset 0 0 20px rgba(0, 255, 255, 0.1);
+        }
+
+        .question-card.normal {
+            border-color: var(--neon-purple);
+            box-shadow: 0 0 15px rgba(157, 0, 255, 0.4), inset 0 0 20px rgba(157, 0, 255, 0.2);
+        }
+
+        .question-card.hot {
+            border-color: var(--neon-pink);
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.4), inset 0 0 20px rgba(255, 0, 255, 0.2);
+        }
+
+        .question-card.random {
+            border-color: #ffffff;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3), inset 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .question-card.custom {
+            border-color: var(--neon-green);
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.3), inset 0 0 20px rgba(0, 255, 204, 0.1);
+        }
+
+        .mosaic-spin {
+            animation: textShake 0.1s linear infinite;
+            filter: blur(4px);
+            opacity: 0.6;
+            transform: scale(1.05);
+        }
+
+        @keyframes textShake {
+
+            0%,
+            100% {
+                transform: translateY(-3px) scale(1.05);
+            }
+
+            50% {
+                transform: translateY(3px) scale(1.05);
+            }
+        }
+
+        .edit-input {
+            width: 100%;
+            min-height: 120px;
+            background: transparent;
+            border: none;
+            color: var(--neon-blue);
+            font-family: inherit;
+            font-size: 1.25rem;
+            font-weight: 700;
+            text-align: center;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .question-cover {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(8px);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .question-cover.active {
+            display: flex;
+        }
+
+        .question-cover p {
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 500;
+            line-height: 1.6;
+            word-break: keep-all;
+        }
+
+        .question-cover p strong {
+            font-weight: 900;
+            font-size: 1.2rem;
+            color: var(--neon-pink);
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        /* 보조 버튼 영역 */
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 15px;
+            width: 100%;
+            transition: opacity 0.2s;
+            flex-shrink: 0;
+        }
+
+        .sub-btn {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: #ddd;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: 0.2s;
+            display: none;
+        }
+
+        .sub-btn:active {
+            transform: scale(0.96);
+        }
+
+        .sub-btn.editing {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 10px rgba(0, 255, 204, 0.4);
+            border: none;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .action-btn {
+            width: 100%;
+            padding: 15px;
+            border-radius: 12px;
+            border: none;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .action-btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn-spinning {
+            background: #333;
+            color: #888;
+            border: 1px solid #444;
+            pointer-events: none;
+        }
+
+        .btn-ready {
+            background: var(--neon-pink);
+            box-shadow: 0 4px 20px rgba(255, 0, 127, 0.4);
+            color: #fff;
+            pointer-events: auto;
+        }
+
+        .btn-hidden {
+            background: var(--neon-blue);
+            box-shadow: 0 4px 20px rgba(0, 240, 255, 0.3);
+            color: #000;
+            pointer-events: auto;
+        }
+
+        #main-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #ccc;
+            margin-top: 5px;
+        }
+
+        #main-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        /* 모달 공통 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 255, 255, 0.4);
+            border-radius: 20px;
+            padding: 25px 20px;
+            width: 90%;
+            max-width: 320px;
+            box-shadow: 0 10px 40px rgba(0, 255, 255, 0.2);
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-content h2 {
+            color: var(--neon-blue);
+            font-size: 1.25rem;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: 800;
+        }
+
+        .info-modal-content ol {
+            padding-left: 20px;
+            color: #ddd;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .info-modal-content li {
+            margin-bottom: 10px;
+            word-break: keep-all;
+        }
+
+        .info-modal-content li strong {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .redraw-modal-content h2 {
+            color: #fff;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: 800;
+        }
+
+        .btn-close-modal {
+            width: 100%;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .btn-close-modal:active {
+            transform: scale(0.96);
+        }
+
+        /* 컴팩트 모드 */
+        @media screen and (max-height: 680px) {
+            .main-title {
+                font-size: 1.8rem;
+                margin-bottom: 4px;
+            }
+
+            .subtitle {
+                font-size: 0.85rem;
+                margin-top: 10px;
+                margin-bottom: 5px;
+            }
+
+            .settings-group {
+                padding: 10px;
+                gap: 6px;
+                margin-bottom: 10px;
+            }
+
+            .custom-checkbox {
+                font-size: 0.85rem;
+            }
+
+            .custom-checkbox input {
+                width: 18px;
+                height: 18px;
+            }
+
+            .info-wrapper {
+                margin-bottom: 10px;
+            }
+
+            .btn-info {
+                font-size: 0.85rem;
+                padding: 8px 18px;
+                border-radius: 12px;
+            }
+
+            .flavor-select {
+                gap: 6px;
+            }
+
+            .flavor-btn {
+                padding: 10px;
+                font-size: 0.95rem;
+            }
+
+            .custom-input-group {
+                padding-top: 10px;
+                gap: 6px;
+            }
+
+            .custom-input {
+                min-height: 40px;
+                padding: 10px;
+                font-size: 0.9rem;
+            }
+
+            .btn-custom {
+                padding: 12px;
+                font-size: 0.95rem;
+            }
+
+            .app-reco-card {
+                margin-top: 8px;
+                padding: 12px;
+                border-radius: 14px;
+            }
+
+            .app-reco-card strong {
+                font-size: 0.9rem;
+            }
+
+            .app-reco-card p {
+                font-size: 0.78rem;
+            }
+
+            .app-reco-btn {
+                margin-top: 10px;
+                min-height: 48px;
+                font-size: 0.9rem;
+            }
+
+            #app {
+                padding: 15px 15px;
+            }
+
+            .instruction-box {
+                padding: 10px;
+                margin-bottom: 10px;
+            }
+
+            .instruction-box p {
+                font-size: 0.85rem;
+            }
+
+            .question-wrapper {
+                margin-bottom: 10px;
+            }
+
+            .question-card {
+                min-height: 130px;
+                padding: 15px;
+                font-size: 1.1rem;
+            }
+
+            .edit-input {
+                min-height: 90px;
+                font-size: 1.1rem;
+            }
+
+            .card-actions {
+                margin-top: 10px;
+                gap: 6px;
+            }
+
+            .sub-btn {
+                padding: 10px;
+                font-size: 0.85rem;
+            }
+
+            .controls {
+                gap: 6px;
+            }
+
+            .action-btn {
+                padding: 12px;
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="app">
+        <div id="main-screen" class="screen active">
+            <div class="top-nav">
+                <a href="/" class="back-home-btn">메인으로</a>
+            </div>
+
+            <div class="header">
+                <img src="whisper-game-title.png" alt="귓속말게임 로고" class="title-img">
+            </div>
+
+            <div class="settings-group">
+                <label class="custom-checkbox">
+                    <input type="checkbox" id="chk-dup" checked>
+                    중복 질문 허용
+                </label>
+                <label class="custom-checkbox">
+                    <input type="checkbox" id="chk-edit" checked>
+                    질문 수정하기 허용
+                </label>
+                <label class="custom-checkbox">
+                    <input type="checkbox" id="chk-redraw" checked>
+                    질문 다시 뽑기 허용
+                </label>
+            </div>
+
+            <div class="info-wrapper">
+                <button id="btn-info" class="btn-info">게임 설명 자세히 보기</button>
+            </div>
+
+            <p class="subtitle">원하는 질문의 수위를 선택하거나<br>직접 질문을 작성해주세요.</p>
+
+            <div class="flavor-select">
+                <button class="flavor-btn btn-mild" data-flavor="mild">순한 맛 질문</button>
+                <button class="flavor-btn btn-normal" data-flavor="normal">보통 맛 질문</button>
+                <button class="flavor-btn btn-hot" data-flavor="hot">매운 맛 질문</button>
+                <button class="flavor-btn btn-random" data-flavor="random">랜덤 뽑기</button>
+            </div>
+
+            <div class="custom-input-group">
+                <textarea id="custom-input" class="custom-input" placeholder="직접 질문 작성하기" rows="2"></textarea>
+                <button id="btn-custom" class="btn-custom" disabled>이 질문으로 시작</button>
+                <div class="app-reco-card">
+                    <strong>귓속말 게임엔 맛있는 안주와 술이 빠질 수 없죠</strong>
+                    <p>2차 갈 곳이나 분위기 좋은 술집, 여기서 더 이어갈 장소가 고민된다면 우주라이크 앱에서 찾아보세요.</p>
+                    <button id="app-reco-btn" class="app-reco-btn" type="button">우주라이크 앱에서 장소 보기</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="game-screen" class="screen">
+            <div class="top-nav">
+                <a href="/" class="back-home-btn">메인으로</a>
+            </div>
+
+            <div class="instruction-box">
+                <p id="instruction-text">안내 문구</p>
+            </div>
+
+            <div class="question-wrapper">
+                <div class="question-card" id="question-card">
+                    <span id="question-text">질문을 섞는 중...</span>
+                    <textarea id="edit-input" class="edit-input"></textarea>
+
+                    <div class="question-cover" id="question-cover">
+                        <p><strong>질문이 숨겨졌습니다.</strong></p>
+                    </div>
+                </div>
+
+                <div class="card-actions" id="card-actions">
+                    <button id="redraw-btn" class="sub-btn">질문 다시 뽑기</button>
+                    <button id="edit-btn" class="sub-btn">질문 수정하기</button>
+                </div>
+            </div>
+
+            <div class="controls" id="controls">
+                <button id="toggle-visibility-btn" class="action-btn btn-ready">질문 숨기기</button>
+                <button id="done-btn" class="action-btn btn-ready" style="display: none;">지목 완료</button>
+                <button id="main-btn" class="action-btn">다시 하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="info-modal" class="modal-overlay">
+        <div class="modal-content info-modal-content">
+            <h2>게임 방법</h2>
+            <ol>
+                <li>상대방에게 물어보고 싶은 질문의 수위를 정합니다. <br><span style="font-size: 0.85rem; color: var(--neon-blue);">(매운맛으로도
+                        부족하거나 좋은 아이디어가 있다면 직접 작성할 수 있어요;; !)</span></li>
+                <li>질문이 정해졌다면 하단에 <strong>질문 숨기기</strong> 버튼을 누르고 답변을 원하는 상대에게 휴대폰을 전달합니다.</li>
+                <li>휴대폰을 전달 받았다면 <strong>질문 보기</strong>를 눌러 그 질문에 해당하는 사람을 지목합니다. <br><span
+                        style="font-size: 0.85rem; color: var(--neon-blue);">(질문 예시: 여기서 가장 목소리가 큰 사람은?)</span></li>
+                <li>곤란한 질문을 받아 선택을 못하겠다? 참고로 그런 건 없습니다 ^v^</li>
+                <li>게임 참여자 중 누구나 질문의 내용이 궁금하다면 <strong>술 한 잔</strong>을 마시고 내용을 확인할 수 있습니다.</li>
+            </ol>
+            <button class="btn-close-modal"
+                onclick="document.getElementById('info-modal').classList.remove('active')">닫기</button>
+        </div>
+    </div>
+
+    <div id="redraw-modal" class="modal-overlay">
+        <div class="modal-content redraw-modal-content">
+            <h2>어떤 맛으로 다시 뽑을까요?</h2>
+            <div class="flavor-select" style="gap: 10px; margin-bottom: 20px;">
+                <button class="flavor-btn btn-mild" onclick="reSpin('mild')">순한 맛 질문</button>
+                <button class="flavor-btn btn-normal" onclick="reSpin('normal')">보통 맛 질문</button>
+                <button class="flavor-btn btn-hot" onclick="reSpin('hot')">매운 맛 질문</button>
+                <button class="flavor-btn btn-random" onclick="reSpin('random')">랜덤 뽑기</button>
+            </div>
+            <button class="btn-close-modal"
+                onclick="document.getElementById('redraw-modal').classList.remove('active')">취소</button>
+        </div>
+    </div>
+
+    <script>
+        const questions = {
+            mild: [
+                "여기서 제일 첫인상이 좋은 사람은?", "나중에 집 방향이 같으면 같이 가고 싶은 사람은?", "여기서 누가 제일 인기가 많을 것 같아?", "내일 아침에 제일 먼저 카톡 올 것 같은 사람은?", "의외로 술이 제일 셀 것 같은 사람은?", "여기서 제일 유머감각이 뛰어난 사람은?", "동아리 활동 같이 하면 꿀잼일 것 같은 사람은?", "오늘 패션이 가장 내 취향인 사람은?", "나중에 단둘이 커피 한잔하고 싶은 사람은?", "웃는 모습이 가장 매력적인 사람은?"
+            ],
+            normal: [
+                "단둘이 밥 한 끼 먹어보고 싶은 사람은?", "여기서 내 이상형에 가장 가까운 사람은?", "오늘 카톡 프로필 사진 바꾸면 좋아할 것 같은 사람은?", "연하남/연상녀 스타일 중 더 끌리는 사람은?", "이성 친구가 가장 많을 것 같은 사람은?", "여기서 소개팅 시켜준다면 가장 성공률 높을 것 같은 사람은?", "사실 아까부터 자꾸 눈이 가는 사람은?", "나중에 단둘이 심야영화 보고 싶은 사람은?", "오늘 끝나고 왠지 번호 따일 것 같은 사람은?", "목소리가 가장 매력적인 사람은?"
+            ],
+            hot: [
+                "지금 당장 번호 따고 싶은 사람은?", "오늘 끝나고 딱 한 잔만 더 하고 싶은 사람은?", "여기서 스킨십 진도가 가장 빠를 것 같은 사람은?", "이성으로서 가장 설레게 하는 사람은?", "만약 사귄다면 가장 오래갈 것 같은 사람은?", "여기서 제일 어른 같은 매력이 있는 사람은?", "오늘밤 꿈에 나왔으면 좋겠는 사람은?", "단둘이 여행가면 제일 재밌을 것 같은 사람은?", "자취방에 초대하고 싶거나, 초대받고 싶은 사람은?", "지금 당장 손잡고 싶은 사람은?"
+            ]
+        };
+        const flavorNames = { mild: '순한', normal: '보통', hot: '매운', random: '랜덤' };
+
+        let usedQuestions = { mild: [], normal: [], hot: [], random: [] };
+        let isInHoldMode = false;
+
+        const screens = { main: document.getElementById('main-screen'), game: document.getElementById('game-screen') };
+        const questionText = document.getElementById('question-text');
+        const editInput = document.getElementById('edit-input');
+        const questionCover = document.getElementById('question-cover');
+        const instructionText = document.getElementById('instruction-text');
+        const cardActions = document.getElementById('card-actions');
+
+        const redrawBtn = document.getElementById('redraw-btn');
+        const editBtn = document.getElementById('edit-btn');
+        const toggleVisibilityBtn = document.getElementById('toggle-visibility-btn');
+        const doneBtn = document.getElementById('done-btn');
+        const mainBtn = document.getElementById('main-btn');
+
+        const customInput = document.getElementById('custom-input');
+        const btnCustom = document.getElementById('btn-custom');
+        const appRecoBtn = document.getElementById('app-reco-btn');
+
+        const chkDup = document.getElementById('chk-dup');
+        const chkEdit = document.getElementById('chk-edit');
+        const chkRedraw = document.getElementById('chk-redraw');
+
+        let currentFlavor = null;
+        let spinInterval = null;
+        let spinTimeout = null;
+        let isEditing = false;
+
+        function getStoreUrl() {
+            const ua = navigator.userAgent || '';
+            if (/iPhone|iPad|iPod/i.test(ua)) {
+                return 'https://apps.apple.com/kr/app/wouldulike/id6740640251';
+            }
+            return 'https://play.google.com/store/apps/details?id=com.coggiri.new1';
+        }
+
+        function changeScreen(screenName) {
+            Object.values(screens).forEach(s => s.classList.remove('active'));
+            screens[screenName].classList.add('active');
+        }
+
+        function fireConfetti() { confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 }, colors: ['#00ffff', '#ff00ff', '#9d00ff'] }); }
+
+        document.getElementById('btn-info').addEventListener('click', () => document.getElementById('info-modal').classList.add('active'));
+        appRecoBtn.addEventListener('click', () => {
+            window.open(getStoreUrl(), '_blank', 'noopener,noreferrer');
+        });
+
+        customInput.addEventListener('input', (e) => {
+            btnCustom.disabled = e.target.value.trim() === '';
+        });
+
+        function getFinalQuestion(flavor) {
+            let qList = flavor === 'random'
+                ? [...questions.mild, ...questions.normal, ...questions.hot]
+                : questions[flavor];
+            if (chkDup.checked) {
+                return qList[Math.floor(Math.random() * qList.length)];
+            } else {
+                let available = qList.filter(q => !usedQuestions[flavor].includes(q));
+                if (available.length === 0) {
+                    alert("해당 난이도의 모든 질문을 소진했습니다! 질문 풀이가 초기화됩니다.");
+                    usedQuestions[flavor] = [];
+                    available = qList;
+                }
+                const picked = available[Math.floor(Math.random() * available.length)];
+                usedQuestions[flavor].push(picked);
+                return picked;
+            }
+        }
+
+        function reSpin(flavor) {
+            document.getElementById('redraw-modal').classList.remove('active');
+            startSpin(flavor);
+        }
+
+        function updateSubButtonsVisibility() {
+            let hasVisibleBtn = false;
+            if (chkRedraw.checked && currentFlavor !== 'custom') {
+                redrawBtn.style.display = 'block';
+                hasVisibleBtn = true;
+            } else {
+                redrawBtn.style.display = 'none';
+            }
+
+            if (chkEdit.checked) {
+                editBtn.style.display = 'block';
+                hasVisibleBtn = true;
+            } else {
+                editBtn.style.display = 'none';
+            }
+
+            cardActions.style.display = hasVisibleBtn ? 'flex' : 'none';
+            return hasVisibleBtn;
+        }
+
+        function startSpin(flavor) {
+            currentFlavor = flavor;
+            changeScreen('game');
+            resetGameUI();
+
+            cardActions.style.display = 'none';
+
+            const questionCard = document.getElementById('question-card');
+            questionCard.className = 'question-card ' + flavor;
+
+            // 추가된 부분: 안내 문구 박스에도 동일한 클래스 적용
+            const instructionBox = document.querySelector('.instruction-box');
+            instructionBox.className = 'instruction-box ' + flavor;
+
+            if (flavor === 'random') {
+                instructionText.textContent = "두근두근 랜덤으로 질문을 뽑는 중입니다!";
+            } else {
+                instructionText.textContent = `두근두근 ${flavorNames[flavor]} 맛 질문을 기대하세요!`;
+            }
+            toggleVisibilityBtn.className = 'action-btn btn-spinning';
+            toggleVisibilityBtn.textContent = '질문 뽑는 중...';
+
+            questionText.classList.add('mosaic-spin');
+
+            let qList = flavor === 'random'
+                ? [...questions.mild, ...questions.normal, ...questions.hot]
+                : questions[flavor];
+
+            if (spinInterval) clearInterval(spinInterval);
+            if (spinTimeout) clearTimeout(spinTimeout);
+
+            spinInterval = setInterval(() => {
+                questionText.textContent = qList[Math.floor(Math.random() * qList.length)];
+            }, 50);
+
+            spinTimeout = setTimeout(() => {
+                clearInterval(spinInterval);
+                questionText.classList.remove('mosaic-spin');
+                questionText.textContent = getFinalQuestion(flavor);
+
+                instructionText.textContent = "질문이 준비되었습니다. 질문이 마음에 들었다면 하단에 질문 숨기기 버튼을 누르고 답변을 듣고 싶은 상대에게 휴대폰을 전달하세요!";
+                toggleVisibilityBtn.className = 'action-btn btn-ready';
+                toggleVisibilityBtn.textContent = '질문 숨기기';
+
+                updateSubButtonsVisibility();
+                fireConfetti();
+            }, 1200);
+        }
+
+        function startCustom(text) {
+            currentFlavor = 'custom';
+            changeScreen('game');
+            resetGameUI();
+
+            const questionCard = document.getElementById('question-card');
+            questionCard.className = 'question-card custom';
+
+            // 추가된 부분: 커스텀 난이도일 때도 동일하게 색상 변경
+            const instructionBox = document.querySelector('.instruction-box');
+            instructionBox.className = 'instruction-box custom';
+
+            updateSubButtonsVisibility();
+
+            instructionText.textContent = "질문을 숨기고 답변을 듣고 싶은 상대에게 휴대폰을 전달하세요!";
+            questionText.textContent = text;
+            toggleVisibilityBtn.className = 'action-btn btn-ready';
+            toggleVisibilityBtn.textContent = '질문 숨기기';
+            fireConfetti();
+        }
+
+        function resetGameUI() {
+            questionText.classList.remove('mosaic-spin');
+            questionCover.classList.remove('active');
+            isEditing = false;
+            editInput.style.display = 'none';
+            questionText.style.display = 'block';
+            editBtn.textContent = '질문 수정하기';
+            editBtn.classList.remove('editing');
+
+            isInHoldMode = false;
+            toggleVisibilityBtn.style.display = 'block';
+            toggleVisibilityBtn.className = 'action-btn btn-ready';
+            toggleVisibilityBtn.textContent = '질문 숨기기';
+
+            doneBtn.style.display = 'none';
+            cardActions.style.display = 'flex';
+        }
+
+        document.querySelectorAll('#main-screen .flavor-btn').forEach(btn => {
+            btn.addEventListener('click', () => startSpin(btn.dataset.flavor));
+        });
+
+        btnCustom.addEventListener('click', () => {
+            const userQuestion = customInput.value.trim();
+            if (!userQuestion) return;
+            startCustom(userQuestion);
+        });
+
+        redrawBtn.addEventListener('click', () => document.getElementById('redraw-modal').classList.add('active'));
+
+        editBtn.addEventListener('click', () => {
+            if (!isEditing) {
+                isEditing = true;
+                editInput.value = questionText.textContent;
+                questionText.style.display = 'none';
+                editInput.style.display = 'block';
+                editInput.focus();
+                editBtn.textContent = '수정 완료';
+                editBtn.classList.add('editing');
+            } else {
+                isEditing = false;
+                const newText = editInput.value.trim() || "질문이 비어있습니다.";
+                questionText.textContent = newText;
+                editInput.style.display = 'none';
+                questionText.style.display = 'block';
+                editBtn.textContent = '질문 수정하기';
+                editBtn.classList.remove('editing');
+            }
+        });
+
+        toggleVisibilityBtn.addEventListener('click', () => {
+            if (isInHoldMode) return;
+
+            if (toggleVisibilityBtn.textContent === '질문 숨기기') {
+                if (isEditing) editBtn.click();
+                questionCover.classList.add('active');
+                cardActions.style.display = 'none';
+
+                isInHoldMode = true;
+                toggleVisibilityBtn.textContent = '질문 보기 (누르고 있기)';
+                toggleVisibilityBtn.className = 'action-btn btn-hidden';
+                doneBtn.style.display = 'block';
+
+                instructionText.textContent = "축하합니다 :) 답변자로 지목 당하셨습니다! 질문을 확인하고 해당하는 상대를 지목해 주세요.";
+            }
+        });
+
+        doneBtn.addEventListener('click', () => {
+            fireConfetti();
+            isInHoldMode = true;
+            instructionText.textContent = "지목이 완료되었습니다! 이 질문이 무엇이었는지 궁금한 사람이 있다면 벌주를 마시고 확인할 수 있습니다. 더 이상 궁금한 사람이 없다면 처음으로 돌아가 다시 게임을 진행해 주세요!";
+
+            doneBtn.style.display = 'none';
+            toggleVisibilityBtn.style.display = 'block';
+            toggleVisibilityBtn.textContent = '질문 확인 (보려면 누르고 있기)';
+            toggleVisibilityBtn.className = 'action-btn btn-hidden';
+            questionCover.classList.add('active');
+        });
+
+        const showQuestion = (e) => {
+            if (!isInHoldMode) return;
+            if (e.cancelable) e.preventDefault();
+            questionCover.classList.remove('active');
+            toggleVisibilityBtn.classList.add('btn-ready');
+            toggleVisibilityBtn.classList.remove('btn-hidden');
+        };
+
+        const hideQuestion = () => {
+            if (!isInHoldMode) return;
+            questionCover.classList.add('active');
+            toggleVisibilityBtn.classList.add('btn-hidden');
+            toggleVisibilityBtn.classList.remove('btn-ready');
+        };
+
+        toggleVisibilityBtn.addEventListener('mousedown', showQuestion);
+        toggleVisibilityBtn.addEventListener('touchstart', showQuestion, { passive: false });
+        window.addEventListener('mouseup', hideQuestion);
+        window.addEventListener('touchend', hideQuestion);
+        window.addEventListener('mouseleave', hideQuestion);
+
+        mainBtn.addEventListener('click', () => {
+            if (spinInterval) clearInterval(spinInterval);
+            if (spinTimeout) clearTimeout(spinTimeout);
+            customInput.value = '';
+            btnCustom.disabled = true;
+
+            isInHoldMode = false;
+            toggleVisibilityBtn.style.display = 'block';
+            toggleVisibilityBtn.textContent = '질문 숨기기';
+            doneBtn.style.display = 'none';
+
+            // 추가된 부분: 다시하기 시 안내 문구 박스 초기화
+            const instructionBox = document.querySelector('.instruction-box');
+            if (instructionBox) instructionBox.className = 'instruction-box';
+
+            changeScreen('main');
+        });
+    </script>
+</body>
+
+</html>
