@@ -677,7 +677,7 @@ export default function MeatGrill(){
 
     setSoldOutUiReady(false)
   }, [isCouponSoldOut, status])
-  const showSoldOutOverlay = isCouponSoldOut && status !== 'cooking' && status !== 'flipped' && status !== 'success' && soldOutUiReady
+  const showSoldOutOverlay = isCouponSoldOut && status !== 'cooking' && status !== 'flipped' && soldOutUiReady
   const showClosedOverlay = !isCouponSoldOut && remainingAttempts <= 0 && status !== 'cooking' && status !== 'flipped' && status !== 'success' && closedUiReady
   const showShareBonusPanel = !isCouponSoldOut && remainingAttempts <= 0 && status !== 'cooking' && status !== 'flipped' && closedUiReady
   const couponBoardTopRow = todayBundle ? [
