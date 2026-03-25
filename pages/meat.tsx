@@ -2,22 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Head from 'next/head'
 import Script from 'next/script'
-
-declare global {
-  interface Window {
-    Kakao?: {
-      isInitialized?: () => boolean
-      init?: (appKey: string) => void
-      cleanup?: () => void
-      Share?: {
-        sendDefault: (options: Record<string, unknown>) => void
-      }
-      Link?: {
-        sendDefault: (options: Record<string, unknown>) => void
-      }
-    }
-  }
-}
+import { getCanonicalUrl } from '../lib/site'
+import { getCouponBundleForDayKey } from '../lib/meatCoupons'
 
 type Status = 'idle' | 'cooking' | 'flipped' | 'success' | 'fail'
 type OrderId = 'raw' | 'rare' | 'mediumRare' | 'medium' | 'wellDone' | 'burnt'
@@ -33,7 +19,8 @@ type Order = {
 }
 
 type RewardTier = {
-  code: string
+  kind: 'limited' | 'basic' | 'rare' | 'legend' | 'none'
+  code: string | null
   count: number
   label: string
   rarity: 'basic' | 'rare' | 'legend'
@@ -42,14 +29,37 @@ type RewardTier = {
 }
 
 type DailyAttemptState = {
-  dayKey: string
+  resetKey: string
   used: number
-  bonus: number
+  bonusAttempts: number
   sharedCount: number
+  limitedClaimed: boolean
+  extraRewardCount: number
+  claimedBasicCodes: string[]
+  claimedRare: boolean
+  claimedLegend: boolean
 }
 
-const ATTEMPT_STORAGE_KEY = 'meat-daily-attempts-v2'
+type KakaoShareTarget = {
+  isInitialized: () => boolean
+  init: (appKey: string) => void
+  Share?: {
+    sendDefault: (options: Record<string, unknown>) => void
+  }
+  Link?: {
+    sendDefault: (options: Record<string, unknown>) => void
+  }
+}
+
+declare global {
+  interface Window {
+    Kakao?: KakaoShareTarget
+  }
+}
+
+const ATTEMPT_STORAGE_KEY = 'meat-daily-attempts-v3'
 const DAILY_LIMIT = 5
+const MAX_EXTRA_REWARDS = 4
 
 const ORDERS: Order[] = [
   { id: 'raw', label: '생고기', guest: '빠른 손님', note: '겉만 살짝.', target: 1.2, tolerance: 0.5, difficulty: '쉬움' },
@@ -103,60 +113,207 @@ function getDonenessLabel(id: OrderId){
   return ORDERS.find((order)=> order.id === id)?.label ?? id
 }
 
-function getLocalDayKey(){
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const date = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${date}`
+function formatDayKey(date: Date){
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-function drawRewardTier(): RewardTier{
-  const roll = Math.random() * 100
-  if(roll < 1){
+function getCampaignResetKey(date = new Date()){
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  })
+  const parts = formatter.formatToParts(date)
+  const getValue = (type: Intl.DateTimeFormatPartTypes) => parts.find((part)=> part.type === type)?.value ?? '00'
+  const year = Number(getValue('year'))
+  const month = Number(getValue('month'))
+  const day = Number(getValue('day'))
+  const hour = Number(getValue('hour'))
+
+  const baseDate = new Date(Date.UTC(year, month - 1, day))
+  if(hour < 10){
+    baseDate.setUTCDate(baseDate.getUTCDate() - 1)
+  }
+
+  return formatDayKey(baseDate)
+}
+
+function createAttemptState(resetKey = getCampaignResetKey()): DailyAttemptState{
+  return {
+    resetKey,
+    used: 0,
+    bonusAttempts: 0,
+    sharedCount: 0,
+    limitedClaimed: false,
+    extraRewardCount: 0,
+    claimedBasicCodes: [],
+    claimedRare: false,
+    claimedLegend: false,
+  }
+}
+
+function normalizeAttemptState(state?: DailyAttemptState | null, resetKey = getCampaignResetKey()){
+  if(!state || state.resetKey !== resetKey){
+    return createAttemptState(resetKey)
+  }
+
+  return {
+    resetKey,
+    used: state.used ?? 0,
+    bonusAttempts: state.bonusAttempts ?? 0,
+    sharedCount: state.sharedCount ?? 0,
+    limitedClaimed: state.limitedClaimed ?? false,
+    extraRewardCount: state.extraRewardCount ?? 0,
+    claimedBasicCodes: state.claimedBasicCodes ?? [],
+    claimedRare: state.claimedRare ?? false,
+    claimedLegend: state.claimedLegend ?? false,
+  }
+}
+
+function pickRandomItem<T>(items: T[]){
+  return items[randomInt(0, items.length - 1)]
+}
+
+function getRewardForSuccess(state: DailyAttemptState): RewardTier{
+  const bundle = getCouponBundleForDayKey(state.resetKey)
+  if(!bundle){
     return {
-      code: 'rawmeat',
+      kind: 'none',
+      code: null,
+      count: 0,
+      label: '쿠폰 준비 중',
+      rarity: 'basic',
+      headline: '오늘 쿠폰 준비 중',
+      detail: '오늘 사용할 쿠폰 구성이 아직 등록되지 않았어요.',
+    }
+  }
+
+  if(!state.limitedClaimed){
+    return {
+      kind: 'limited',
+      code: bundle.limited,
+      count: 1,
+      label: '캠페인 한정 쿠폰',
+      rarity: 'basic',
+      headline: '오늘 첫 성공 보상',
+      detail: '매일 첫 성공에는 캠페인 한정 쿠폰 코드가 열려요.',
+    }
+  }
+
+  const availableBasicCodes = bundle.basic.filter((code)=> !state.claimedBasicCodes.includes(code))
+  const roll = Math.random() * 100
+
+  if(!state.claimedLegend && roll < 1){
+    return {
+      kind: 'legend',
+      code: bundle.legend,
       count: 5,
       label: '5종 쿠폰',
       rarity: 'legend',
-      headline: '초희귀 보상 등장',
-      detail: '1% 확률로 등장하는 5종 쿠폰 당첨이에요.',
+      headline: '1% 희귀 보상 등장',
+      detail: '추가 성공 보상에서 1% 확률 코드가 나왔어요. 이 성공도 4회 한도에 포함됩니다.',
     }
   }
-  if(roll < 6){
+
+  if(!state.claimedRare && roll < 6){
     return {
-      code: 'veryrare',
+      kind: 'rare',
+      code: bundle.rare,
       count: 3,
       label: '3종 쿠폰',
       rarity: 'rare',
-      headline: '희귀 보상 등장',
-      detail: '5% 확률로 등장하는 3종 쿠폰 당첨이에요.',
+      headline: '5% 희귀 보상 등장',
+      detail: '추가 성공 보상에서 5% 확률 코드가 나왔어요. 이 성공도 4회 한도에 포함됩니다.',
     }
   }
+
+  if(availableBasicCodes.length > 0){
+    return {
+      kind: 'basic',
+      code: pickRandomItem(availableBasicCodes),
+      count: 1,
+      label: '기본 1종 쿠폰',
+      rarity: 'basic',
+      headline: '추가 성공 보상 지급',
+      detail: '추가 성공 보상은 하루 최대 4번까지 받을 수 있고, 기본 4종 코드는 매번 랜덤 순서로 열려요.',
+    }
+  }
+
+  if(!state.claimedRare){
+    return {
+      kind: 'rare',
+      code: bundle.rare,
+      count: 3,
+      label: '3종 쿠폰',
+      rarity: 'rare',
+      headline: '5% 희귀 보상 등장',
+      detail: '기본 코드가 모두 소진되어 남아 있는 희귀 코드가 지급됐어요.',
+    }
+  }
+
+  if(!state.claimedLegend){
+    return {
+      kind: 'legend',
+      code: bundle.legend,
+      count: 5,
+      label: '5종 쿠폰',
+      rarity: 'legend',
+      headline: '1% 희귀 보상 등장',
+      detail: '기본 코드가 모두 소진되어 남아 있는 초희귀 코드가 지급됐어요.',
+    }
+  }
+
   return {
-    code: 'welldone',
-    count: 1,
-    label: '기본 쿠폰',
+    kind: 'none',
+    code: null,
+    count: 0,
+    label: '오늘 보상 마감',
     rarity: 'basic',
-    headline: '기본 보상 지급',
-    detail: '성공 보상 1종이 지급됐어요.',
+    headline: '오늘 받을 수 있는 쿠폰을 모두 열었어요',
+    detail: '오늘은 더 이상 새로운 쿠폰 코드가 남아 있지 않아요.',
   }
 }
 
-const SHARE_TITLE = '미디움 레어로 부탁합니다'
-const SHARE_MESSAGE = [
-  '🔥 [미디움 레어로 부탁합니다]',
-  '친구가 고기 굽기에 재도전 중이에요 🥩',
-  '굽기 시작 → 뒤집기 타이밍만 잘 맞추면 끝!',
-  '공유 보너스로 추가 도전 1회를 받을 수 있어요 👀',
-  '한 번만 도와줘',
-]
+function applyRewardToAttemptState(state: DailyAttemptState, reward: RewardTier){
+  if(reward.kind === 'none'){
+    return state
+  }
+
+  if(reward.kind === 'limited'){
+    return {
+      ...state,
+      limitedClaimed: true,
+    }
+  }
+
+  const nextState: DailyAttemptState = {
+    ...state,
+    extraRewardCount: Math.min(MAX_EXTRA_REWARDS, state.extraRewardCount + 1),
+  }
+
+  if(reward.kind === 'basic' && reward.code){
+    nextState.claimedBasicCodes = [...state.claimedBasicCodes, reward.code]
+  }
+
+  if(reward.kind === 'rare'){
+    nextState.claimedRare = true
+  }
+
+  if(reward.kind === 'legend'){
+    nextState.claimedLegend = true
+  }
+
+  return nextState
+}
+
 const APP_STORE_URL = 'https://apps.apple.com/kr/app/wouldulike/id6740640251'
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.coggiri.new1'
-
-function buildShareText(shareUrl: string){
-  return `${SHARE_MESSAGE.join('\n')}\n${shareUrl}`
-}
 
 async function copyText(text: string){
   if(typeof window === 'undefined') return false
@@ -190,13 +347,9 @@ async function copyText(text: string){
 }
 
 export default function MeatGrill(){
-  const kakaoJsKey = process.env.NEXT_PUBLIC_KAKAO_JS_KEY
-  const [attemptState, setAttemptState] = useState<DailyAttemptState>({
-    dayKey: '',
-    used: 0,
-    bonus: 0,
-    sharedCount: 0,
-  })
+  const canonicalUrl = getCanonicalUrl('/meat')
+  const [attemptState, setAttemptState] = useState<DailyAttemptState>(createAttemptState)
+  const [storageReady, setStorageReady] = useState(false)
   const [status,setStatus] = useState<Status>('idle')
   const [time,setTime] = useState(0)
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null)
@@ -205,52 +358,53 @@ export default function MeatGrill(){
   const [rewardTier, setRewardTier] = useState<RewardTier | null>(null)
   const [copied, setCopied] = useState(false)
   const [showConfetti,setShowConfetti] = useState(false)
+  const [closedUiReady, setClosedUiReady] = useState(false)
+  const [soldOutUiReady, setSoldOutUiReady] = useState(false)
   const [isFlipping, setIsFlipping] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [orderPulse, setOrderPulse] = useState(false)
   const [confetti, setConfetti] = useState<Array<{left:number, bg:string, delay:number, rot:number}>>([])
   const [sharePending, setSharePending] = useState(false)
   const [shareFeedback, setShareFeedback] = useState<string | null>(null)
-  const [manualShareOpen, setManualShareOpen] = useState(false)
-  const [kakaoReady, setKakaoReady] = useState(false)
+  const [progressTextFrame, setProgressTextFrame] = useState(0)
   const timerRef = useRef<number|undefined>(undefined)
   const resetRef = useRef<number|undefined>(undefined)
   const startRef = useRef<number|undefined>(undefined)
+  const currentAttemptState = normalizeAttemptState(attemptState)
+  const todayBundle = getCouponBundleForDayKey(currentAttemptState.resetKey)
 
   useEffect(()=>{
     if(typeof window === 'undefined') return
-    const todayKey = getLocalDayKey()
     const saved = window.localStorage.getItem(ATTEMPT_STORAGE_KEY)
 
     if(saved){
       try{
         const parsed = JSON.parse(saved) as DailyAttemptState
-        if(parsed.dayKey === todayKey){
-          setAttemptState({
-            dayKey: parsed.dayKey,
-            used: parsed.used ?? 0,
-            bonus: parsed.bonus ?? 0,
-            sharedCount: parsed.sharedCount ?? 0,
-          })
-          return
-        }
+        setAttemptState(normalizeAttemptState(parsed))
+        setStorageReady(true)
+        return
       } catch {}
     }
 
-    setAttemptState({ dayKey: todayKey, used: 0, bonus: 0, sharedCount: 0 })
+    setAttemptState(createAttemptState())
+    setStorageReady(true)
   }, [])
 
   useEffect(()=>{
-    if(typeof window === 'undefined') return
-    if(window.Kakao){
-      setKakaoReady(true)
+    if(typeof window === 'undefined' || !storageReady) return
+    const syncReset = ()=>{
+      setAttemptState((prev)=> normalizeAttemptState(prev))
     }
-  }, [])
+
+    syncReset()
+    const timer = window.setInterval(syncReset, 60 * 1000)
+    return ()=> window.clearInterval(timer)
+  }, [storageReady])
 
   useEffect(()=>{
-    if(typeof window === 'undefined' || !attemptState.dayKey) return
-    window.localStorage.setItem(ATTEMPT_STORAGE_KEY, JSON.stringify(attemptState))
-  }, [attemptState])
+    if(typeof window === 'undefined' || !storageReady || !currentAttemptState.resetKey) return
+    window.localStorage.setItem(ATTEMPT_STORAGE_KEY, JSON.stringify(currentAttemptState))
+  }, [currentAttemptState, storageReady])
 
   useEffect(()=>{
     if(status==='cooking'){
@@ -298,6 +452,19 @@ export default function MeatGrill(){
   }, [shareFeedback])
 
   useEffect(()=>{
+    if(status !== 'cooking'){
+      setProgressTextFrame(0)
+      return
+    }
+
+    const timer = window.setInterval(()=>{
+      setProgressTextFrame((prev)=> prev + 1)
+    }, 320)
+
+    return ()=> window.clearInterval(timer)
+  }, [status])
+
+  useEffect(()=>{
     return ()=>{
       if(timerRef.current) window.clearInterval(timerRef.current)
       if(resetRef.current) window.clearTimeout(resetRef.current)
@@ -307,21 +474,20 @@ export default function MeatGrill(){
   function start(){
     if(timerRef.current) window.clearInterval(timerRef.current)
     if(resetRef.current) window.clearTimeout(resetRef.current)
-    if(remainingAttempts <= 0) return
+    if(remainingAttempts <= 0 || isCouponSoldOut) return
 
     const nextOrder = pickRandomOrder()
-    const todayKey = getLocalDayKey()
     setAttemptState((prev)=>{
-      const base = prev.dayKey === todayKey
-        ? prev
-        : { dayKey: todayKey, used: 0, bonus: 0, sharedCount: 0 }
-      const nextUsed = base.used < DAILY_LIMIT ? base.used + 1 : base.used
-      const nextBonus = base.used < DAILY_LIMIT ? base.bonus : Math.max(0, base.bonus - 1)
+      const base = normalizeAttemptState(prev)
+      if(base.used >= DAILY_LIMIT && base.bonusAttempts > 0){
+        return {
+          ...base,
+          bonusAttempts: base.bonusAttempts - 1,
+        }
+      }
       return {
-        dayKey: todayKey,
-        used: nextUsed,
-        bonus: nextBonus,
-        sharedCount: base.sharedCount,
+        ...base,
+        used: Math.min(DAILY_LIMIT, base.used + 1),
       }
     })
     setCurrentOrder(nextOrder)
@@ -330,6 +496,8 @@ export default function MeatGrill(){
     setCoupon(null)
     setRewardTier(null)
     setCopied(false)
+    setClosedUiReady(false)
+    setSoldOutUiReady(false)
     setLastResult(null)
     setIsFlipping(false)
     setStatus('cooking')
@@ -351,16 +519,17 @@ export default function MeatGrill(){
 
     window.setTimeout(()=>{
       if(isSuccess){
-        const nextReward = drawRewardTier()
+        const nextReward = getRewardForSuccess(currentAttemptState)
+        setAttemptState((prev)=> applyRewardToAttemptState(normalizeAttemptState(prev), nextReward))
         setStatus('success')
         setRewardTier(nextReward)
         setCoupon(nextReward.code)
-        setShowConfetti(true)
+        setShowConfetti(Boolean(nextReward.code))
       } else {
         setStatus('fail')
         resetRef.current = window.setTimeout(()=>{
           setStatus('idle')
-        }, 3600)
+        }, remainingAttempts <= 0 ? 1200 : 2200)
       }
       setIsFlipping(false)
     }, 360)
@@ -378,138 +547,88 @@ export default function MeatGrill(){
     }
   }
 
+  function getSharePayload(){
+    const shareUrl = canonicalUrl
+    const shareText = [
+      '🔥 [미디움 레어로 부탁합니다]',
+      '친구가 고기 굽기에 재도전 중이에요 🥩',
+      '굽기 시작 → 뒤집기 타이밍만 잘 맞추면 끝!',
+      '공유 보너스로 추가 도전 1회를 받을 수 있어요 👀',
+      '한 번만 도와줘',
+      shareUrl,
+    ].join('\n')
+    return { shareUrl, shareText }
+  }
+
+  function sendKakaoInvite(shareUrl: string, shareText: string){
+    if(typeof window === 'undefined') return false
+
+    const kakao = window.Kakao
+    const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_JS_KEY
+    if(!kakao || !kakaoKey) return false
+
+    if(!kakao.isInitialized()){
+      kakao.init(kakaoKey)
+    }
+
+    const sendDefault = kakao.Share?.sendDefault ?? kakao.Link?.sendDefault
+    if(!sendDefault){
+      return false
+    }
+
+    sendDefault({
+      objectType: 'text',
+      text: shareText,
+      link: {
+        mobileWebUrl: shareUrl,
+        webUrl: shareUrl,
+      },
+      buttonTitle: '게임 하러 가기',
+    })
+
+    return true
+  }
+
   function awardBonusAttempt(){
-    const todayKey = getLocalDayKey()
     setAttemptState((prev)=>{
-      const base = prev.dayKey === todayKey
-        ? prev
-        : { dayKey: todayKey, used: 0, bonus: 0, sharedCount: 0 }
+      const base = normalizeAttemptState(prev)
       return {
-        dayKey: todayKey,
-        used: base.used,
-        bonus: base.bonus + 1,
+        ...base,
+        bonusAttempts: base.bonusAttempts + 1,
         sharedCount: base.sharedCount + 1,
       }
     })
   }
 
-  function ensureKakaoReady(){
-    if(typeof window === 'undefined' || !window.Kakao) return false
-    if(!kakaoJsKey) return false
-
-    if(!window.Kakao.isInitialized?.()){
-      window.Kakao.cleanup?.()
-      window.Kakao.init?.(kakaoJsKey)
-    }
-    return Boolean(window.Kakao.isInitialized?.())
-  }
-
-  function sendKakaoShare(shareUrl: string){
-    if(typeof window === 'undefined' || !window.Kakao){
-      throw new Error('Kakao SDK not found')
-    }
-
-    const payload = {
-      objectType: 'text',
-      text: buildShareText(shareUrl),
-      link: {
-        mobileWebUrl: shareUrl,
-        webUrl: shareUrl,
-      },
-      buttons: [
-        {
-          title: '지금 도전하기',
-          link: {
-            mobileWebUrl: shareUrl,
-            webUrl: shareUrl,
-          },
-        },
-      ],
-    }
-
-    if(window.Kakao.Share?.sendDefault){
-      window.Kakao.Share.sendDefault(payload)
-      return
-    }
-
-    if(window.Kakao.Link?.sendDefault){
-      window.Kakao.Link.sendDefault(payload)
-      return
-    }
-
-    throw new Error('Kakao Share API unavailable')
-  }
-
-  function getSharePayload(){
-    if(typeof window === 'undefined'){
-      return {
-        shareUrl: '',
-        shareText: '',
-      }
-    }
-
-    const shareUrl = window.location.href
-    const shareText = buildShareText(shareUrl)
-
-    return {
-      shareUrl,
-      shareText,
-    }
-  }
-
-  async function copyShareMessage(){
-    const { shareUrl, shareText } = getSharePayload()
-    const didCopy = await copyText(`${shareText} ${shareUrl}`)
-    if(!didCopy){
-      throw new Error('copy failed')
-    }
-  }
-
-  async function handleManualShareCopy(){
-    try{
-      await copyShareMessage()
-      awardBonusAttempt()
-      setManualShareOpen(false)
-      setShareFeedback('공유 링크를 복사했어요. 추가 기회 1회가 지급됐습니다.')
-    } catch {
-      setShareFeedback('링크 복사에 실패했어요. 브라우저 권한을 확인해주세요.')
-    }
-  }
-
   async function shareForExtraAttempt(){
-    if(sharePending || !shareUnlocked || typeof window === 'undefined') return
+    if(sharePending || typeof window === 'undefined') return
 
     setSharePending(true)
     const { shareUrl, shareText } = getSharePayload()
 
     try{
-      if(ensureKakaoReady()){
-        sendKakaoShare(shareUrl)
-        awardBonusAttempt()
-        setShareFeedback('카카오톡 공유 후 추가 기회 1회를 받았어요.')
-        return
-      }
+      const didOpenKakao = sendKakaoInvite(shareUrl, shareText)
 
-      if(navigator.share){
+      if(!didOpenKakao && navigator.share){
         await navigator.share({
-          title: SHARE_TITLE,
+          title: '미디움 레어로 부탁합니다',
           text: shareText,
           url: shareUrl,
         })
-        awardBonusAttempt()
-        setShareFeedback('공유가 완료되어 추가 기회 1회를 받았어요.')
-        return
+      } else if(!didOpenKakao){
+        const didCopy = await copyText(`${shareText}\n${shareUrl}`)
+        if(!didCopy){
+          throw new Error('copy failed')
+        }
       }
 
-      setManualShareOpen(true)
-      setShareFeedback('이 브라우저에서는 공유창 대신 링크 복사 화면을 열었어요.')
+      awardBonusAttempt()
+      setShareFeedback('친구 초대가 완료되어 추가 기회 1회가 생겼어요.')
     } catch (error) {
       if(error instanceof DOMException && error.name === 'AbortError'){
-        setShareFeedback('공유가 취소되어 추가 기회가 지급되지 않았어요.')
+        setShareFeedback('친구 초대가 취소되어 추가 기회가 지급되지 않았어요.')
       } else {
-        setManualShareOpen(true)
-        const message = error instanceof Error ? error.message : 'unknown error'
-        setShareFeedback(`자동 공유가 열리지 않아 링크 복사 화면을 열었어요. (${message})`)
+        setShareFeedback('친구 초대를 열지 못했어요. 다시 시도해주세요.')
       }
     } finally {
       setSharePending(false)
@@ -518,10 +637,79 @@ export default function MeatGrill(){
 
   const total = 13.5
   const progress = Math.min(1, time / total)
-  const baseRemainingAttempts = Math.max(0, DAILY_LIMIT - attemptState.used)
-  const remainingAttempts = baseRemainingAttempts + attemptState.bonus
-  const shareUnlocked = baseRemainingAttempts === 0
-  const showClosedOverlay = remainingAttempts <= 0 && shareUnlocked && status === 'idle'
+  const baseRemainingAttempts = Math.max(0, DAILY_LIMIT - currentAttemptState.used)
+  const remainingAttempts = baseRemainingAttempts + currentAttemptState.bonusAttempts
+  const totalClaimedCoupons = (currentAttemptState.limitedClaimed ? 1 : 0) + currentAttemptState.extraRewardCount
+  const isCouponSoldOut = totalClaimedCoupons >= 5
+  useEffect(()=>{
+    if(remainingAttempts > 0){
+      setClosedUiReady(false)
+      return
+    }
+
+    if(status === 'success'){
+      const timer = window.setTimeout(()=> setClosedUiReady(true), 1700)
+      return ()=> window.clearTimeout(timer)
+    }
+
+    if(status === 'fail' || status === 'idle'){
+      setClosedUiReady(true)
+      return
+    }
+
+    setClosedUiReady(false)
+  }, [remainingAttempts, status])
+  useEffect(()=>{
+    if(!isCouponSoldOut){
+      setSoldOutUiReady(false)
+      return
+    }
+
+    if(status === 'success'){
+      const timer = window.setTimeout(()=> setSoldOutUiReady(true), 1700)
+      return ()=> window.clearTimeout(timer)
+    }
+
+    if(status === 'idle' || status === 'fail'){
+      setSoldOutUiReady(true)
+      return
+    }
+
+    setSoldOutUiReady(false)
+  }, [isCouponSoldOut, status])
+  const showSoldOutOverlay = isCouponSoldOut && status !== 'cooking' && status !== 'flipped' && status !== 'success' && soldOutUiReady
+  const showClosedOverlay = !isCouponSoldOut && remainingAttempts <= 0 && status !== 'cooking' && status !== 'flipped' && status !== 'success' && closedUiReady
+  const showShareBonusPanel = !isCouponSoldOut && remainingAttempts <= 0 && status !== 'cooking' && status !== 'flipped' && closedUiReady
+  const couponBoardTopRow = todayBundle ? [
+    {
+      key: `limited-${todayBundle.limited}`,
+      label: '첫 성공',
+      display: currentAttemptState.limitedClaimed ? todayBundle.limited : '미획득',
+      tone: 'limited',
+      claimed: currentAttemptState.limitedClaimed,
+    },
+    {
+      key: `rare-${todayBundle.rare}`,
+      label: '3종 쿠폰 (5%)',
+      display: currentAttemptState.claimedRare ? todayBundle.rare : '미획득',
+      tone: 'rare',
+      claimed: currentAttemptState.claimedRare,
+    },
+    {
+      key: `legend-${todayBundle.legend}`,
+      label: '5종 쿠폰 (1%)',
+      display: currentAttemptState.claimedLegend ? todayBundle.legend : '미획득',
+      tone: 'legend',
+      claimed: currentAttemptState.claimedLegend,
+    },
+  ] : []
+  const couponBoardBottomRow = todayBundle ? todayBundle.basic.map((code, index)=> ({
+    key: `basic-${code}`,
+    label: `1종 쿠폰 ${index + 1}`,
+    display: currentAttemptState.claimedBasicCodes.includes(code) ? code : '미획득',
+    tone: 'basic',
+    claimed: currentAttemptState.claimedBasicCodes.includes(code),
+  })) : []
 
   const meatStage = (()=>{
     if(status === 'cooking'){
@@ -583,23 +771,26 @@ export default function MeatGrill(){
   const appPrimaryUrl = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)
     ? APP_STORE_URL
     : PLAY_STORE_URL
+  const activeProgressStep = useMemo(()=>{
+    if(status !== 'cooking') return null
+    return STATUS_STEPS.filter((step)=> progress >= step.activeAt).at(-1) ?? STATUS_STEPS[0]
+  }, [progress, status])
+  const progressStepLabel = useMemo(()=>{
+    if(!activeProgressStep) return ''
+    const label = activeProgressStep.label
+    const building = Array.from({ length: label.length }, (_, index)=> label.slice(0, index + 1))
+    const frames = [...building, label, `${label}.`, `${label}..`, `${label}...`]
+    return frames[progressTextFrame % frames.length]
+  }, [activeProgressStep, progressTextFrame])
 
   return (
     <>
+      <Script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.4/kakao.min.js" strategy="afterInteractive" />
       <Head>
         <title>미디움 레어로 부탁합니다</title>
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:url" content={canonicalUrl} />
       </Head>
-      <Script
-        id="kakao-sdk"
-        src="https://t1.kakaocdn.net/kakao_js_sdk/2.8.0/kakao.min.js"
-        strategy="afterInteractive"
-        crossOrigin="anonymous"
-        onLoad={()=> setKakaoReady(true)}
-        onError={()=>{
-          setKakaoReady(false)
-          setShareFeedback('카카오 SDK CDN 로딩에 실패했어요. 모바일 네트워크 또는 브라우저 차단 설정을 확인해주세요.')
-        }}
-      />
 
       <div className="container meat-page">
         <div className="space-decor space-decor-a" />
@@ -626,27 +817,39 @@ export default function MeatGrill(){
                   <div className="attempt-pill">오늘 {remainingAttempts}회 남음</div>
                 </div>
               </div>
-              {shareFeedback && <p className="share-feedback">{shareFeedback}</p>}
-              {manualShareOpen && (
-                <div className="share-bonus-panel unlocked">
-                  <div>
-                    <strong>모바일 공유가 바로 열리지 않았어요</strong>
-                    <p className="attempt-caption">
-                      아래 버튼으로 링크를 복사한 뒤 카카오톡에 붙여넣으면 추가 기회 1회를 받을 수 있어요.
-                    </p>
+              <p className="attempt-caption">매일 오전 10시에 도전 횟수와 오늘의 7종 코드가 바뀝니다.</p>
+              {todayBundle && (
+                <>
+                  <p className="attempt-caption coupon-board-heading">획득 가능한 쿠폰</p>
+                  <div className="coupon-board">
+                    <div className="coupon-board-row coupon-board-row-top">
+                      {couponBoardTopRow.map((item)=> (
+                        <div
+                          key={item.key}
+                          className={`coupon-board-item ${item.tone} ${item.claimed ? 'claimed' : 'available'}`}
+                        >
+                          <span className="coupon-board-label">{item.label}</span>
+                          <strong>{item.display}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="coupon-board-row coupon-board-row-bottom">
+                      {couponBoardBottomRow.map((item)=> (
+                        <div
+                          key={item.key}
+                          className={`coupon-board-item ${item.tone} ${item.claimed ? 'claimed' : 'available'}`}
+                        >
+                          <span className="coupon-board-label">{item.label}</span>
+                          <strong>{item.display}</strong>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="button-row">
-                    <button type="button" className="btn secondary share-bonus-btn" onClick={handleManualShareCopy}>
-                      링크 복사하고 1회 받기
-                    </button>
-                    <button type="button" className="btn ghost" onClick={()=> setManualShareOpen(false)}>
-                      닫기
-                    </button>
-                  </div>
-                </div>
+                </>
               )}
+              {shareFeedback && <p className="share-feedback">{shareFeedback}</p>}
               {remainingAttempts <= 0 && (
-                <p className="attempt-caption">오늘 도전 횟수를 모두 사용했어요. 공유 보너스도 없으면 내일 다시 도전할 수 있어요.</p>
+                <p className="attempt-caption">오늘 도전 5회를 모두 사용했어요. 다음 기회는 오전 10시에 열립니다.</p>
               )}
 
             </div>
@@ -659,33 +862,29 @@ export default function MeatGrill(){
                     <>
                       <div className="ticket-main">
                         <strong>{currentOrder.label}</strong>
-                        <span>{currentOrder.difficulty}</span>
+                        <div className="ticket-side">
+                          <span>{currentOrder.difficulty}</span>
+                          <p className="ticket-copy">{currentOrder.guest} · {currentOrder.note}</p>
+                        </div>
                       </div>
-                      <p className="ticket-copy">{currentOrder.guest} · {currentOrder.note}</p>
                     </>
                   ) : (
                     <p className="ticket-copy">`굽기 시작`으로 주문 받기</p>
                   )}
                 </div>
 
-                <div className="control-header live-cook-header">
-                  <div>
-                    <div className="panel-label">진행도</div>
-                    <div className="panel-value">Steak Timing</div>
+                <div className="summary-grid compact">
+                  <div className="summary-card">
+                    <span className="summary-label">현재 상태</span>
+                    <strong>{donenessLabel}</strong>
                   </div>
-                  <div className="summary-grid">
-                    <div className="summary-card">
-                      <span className="summary-label">현재 상태</span>
-                      <strong>{donenessLabel}</strong>
-                    </div>
-                    <div className="summary-card">
-                      <span className="summary-label">대기 중인 손님</span>
-                      <strong>{currentOrder ? currentOrder.guest : '손님 대기'}</strong>
-                    </div>
-                    <div className="summary-card">
-                      <span className="summary-label">진행도</span>
-                      <strong>{Math.round(progress * 100)}%</strong>
-                    </div>
+                  <div className="summary-card">
+                    <span className="summary-label">대기 중인 손님</span>
+                    <strong>{currentOrder ? currentOrder.guest : '손님 대기'}</strong>
+                  </div>
+                  <div className="summary-card">
+                    <span className="summary-label">진행도</span>
+                    <strong>{Math.round(progress * 100)}%</strong>
                   </div>
                 </div>
 
@@ -754,6 +953,18 @@ export default function MeatGrill(){
                         <span className="firework firework-d" />
                       </div>
                     )}
+                    {showSoldOutOverlay && (
+                      <div className="grill-soldout-overlay">
+                        <div className="shutter-door shutter-door-left" />
+                        <div className="shutter-door shutter-door-right" />
+                        <div className="soldout-sign">
+                          <span className="soldout-sign-kicker">TODAY SOLD OUT</span>
+                          <strong>재고 소진</strong>
+                          <p>오늘 획득 가능한 쿠폰을 모두 받으셨어요.</p>
+                          <span>내일도 맛있게 준비해둘게요. 다시 들러주세요.</span>
+                        </div>
+                      </div>
+                    )}
                     {showClosedOverlay && (
                       <div className="grill-closed-overlay">
                         <div className="closed-sign-wrap" aria-hidden="true">
@@ -764,7 +975,7 @@ export default function MeatGrill(){
                               <div className="closed-sign">
                                 <span className="closed-sign-kicker">TODAY ONLY</span>
                                 <strong>영업 정지</strong>
-                                <span className="closed-sign-copy">추가 도전은 공유 후 재오픈</span>
+                                <span className="closed-sign-copy">오전 10시에 다시 열려요</span>
                               </div>
                             </div>
                           </div>
@@ -775,29 +986,15 @@ export default function MeatGrill(){
                 </div>
 
                 <div className="play-controls-panel">
-                  {!showClosedOverlay ? (
-                    <>
-                      <div className="panel-timer play-panel-timer">
-                        {status === 'cooking' ? `${time.toFixed(1)}s` : `${time.toFixed(1)}s`}
-                      </div>
-                      <div className="button-row play-button-row">
-                        <button className="btn" onClick={start} disabled={remainingAttempts <= 0}>굽기 시작</button>
-                        <button className="btn secondary" onClick={flip}>뒤집기</button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="share-bonus-panel unlocked grill-share-panel compact">
+                  {showSoldOutOverlay ? (
+                    <a className="btn play-store-suggestion-btn" href={appPrimaryUrl} target="_blank" rel="noreferrer">
+                      이건 어때요?
+                    </a>
+                  ) : showShareBonusPanel ? (
+                    <div className="share-bonus-panel compact grill-share-panel play-share-panel">
                       <div>
-                        <strong>친구한테 공유하고 한번 더 도전</strong>
-                        <p className="attempt-caption">
-                          추가 도전 {attemptState.bonus}회, 공유 {attemptState.sharedCount}회
-                        </p>
-                        {!kakaoJsKey && (
-                          <p className="share-feedback">`NEXT_PUBLIC_KAKAO_JS_KEY`가 없어서 지금은 기본 공유 방식으로 동작해요.</p>
-                        )}
-                        {kakaoJsKey && !kakaoReady && (
-                          <p className="share-feedback">카카오 SDK 로딩 전이라 기본 공유 방식으로 전환될 수 있어요.</p>
-                        )}
+                        <strong>친구 초대하고 한 번 더 도전</strong>
+                        <p className="attempt-caption">추가 기회 {currentAttemptState.bonusAttempts}회, 초대한 횟수 {currentAttemptState.sharedCount}회</p>
                       </div>
                       <button
                         type="button"
@@ -805,8 +1002,16 @@ export default function MeatGrill(){
                         onClick={shareForExtraAttempt}
                         disabled={sharePending}
                       >
-                        {sharePending ? '공유 준비 중...' : '공유하고 1회 받기'}
+                        {sharePending ? '초대 준비 중...' : '카카오톡으로 친구 초대'}
                       </button>
+                    </div>
+                  ) : (
+                    <div className="button-row play-button-row">
+                      <button className="btn" onClick={start} disabled={remainingAttempts <= 0 || isCouponSoldOut}>굽기 시작</button>
+                      <div className="panel-timer play-panel-timer">
+                        {time.toFixed(1)}s
+                      </div>
+                      <button className="btn secondary" onClick={flip}>뒤집기</button>
                     </div>
                   )}
                 </div>
@@ -820,17 +1025,10 @@ export default function MeatGrill(){
                 </div>
 
                 <div className="progress meat-progress">
+                  <span className={`progress-step-label visible ${progress < 0.5 ? 'light' : 'dark'}`}>{progressStepLabel}</span>
                   <i style={{width: `${Math.min(100,(time/total)*100)}%`}} />
                 </div>
 
-                <div className="status-steps">
-                  {STATUS_STEPS.map((step)=> (
-                    <span key={step.key} className={`step-${step.key} ${progress > step.activeAt ? 'active' : ''}`}>
-                      <b aria-hidden="true">{step.icon}</b>
-                      {step.label}
-                    </span>
-                  ))}
-                </div>
               </div>
 
               <div className={`guest-panel ${guestReaction.mood}`}>
@@ -856,7 +1054,7 @@ export default function MeatGrill(){
                 <div className={`coupon-showcase ${rewardTier?.rarity ?? 'basic'}`}>
                   <div className="coupon-chip">{rewardTier ? rewardTier.label : 'REWARD'}</div>
                   <div className="coupon-code">{coupon}</div>
-                  {rewardTier && rewardTier.rarity !== 'basic' && (
+                  {rewardTier && (
                     <p className="coupon-rare-copy">{rewardTier.detail}</p>
                   )}
                   <button type="button" className={`copy-btn ${copied ? 'done' : ''}`} onClick={copyCoupon}>
@@ -866,7 +1064,7 @@ export default function MeatGrill(){
                     바로 사용하기
                   </a>
                   <p className="coupon-guide">
-                    <code>마이페이지 &gt; 추천코드 입력</code>에 붙여넣으면 돼요. {rewardTier ? `${rewardTier.count}종 보상 코드입니다.` : ''}
+                    <code>마이페이지 &gt; 추천코드 입력</code>에 붙여넣으면 돼요. {rewardTier ? `${rewardTier.count}종 보상 코드입니다.` : ''} 오늘 구성 안에서만 지급되는 일일 코드예요.
                   </p>
                 </div>
               </div>
@@ -917,22 +1115,27 @@ export default function MeatGrill(){
 
               <div className="guide-section">
                 <strong>플레이 방법</strong>
-                <p>`굽기 시작` 후 주문서를 보고, 원하는 타이밍에 `뒤집기`를 눌러 주문 굽기를 맞추면 됩니다.</p>
+                <p>`굽기 시작` 후 주문을 확인하고 타이밍 맞춰 `뒤집기`를 누르면 됩니다.</p>
               </div>
 
               <div className="guide-section">
                 <strong>굽기 종류</strong>
-                <p>`생고기`부터 `탄고기`까지 단계가 바뀌니 손님이 원하는 굽기 구간을 노려 뒤집는 게 핵심이에요.</p>
+                <p>`생고기`부터 `탄고기`까지 변하니 원하는 굽기 구간을 노려보세요.</p>
               </div>
 
               <div className="guide-section">
                 <strong>보는 포인트</strong>
-                <p>`현재 상태`, `대기 중인 손님`, `진행도`를 같이 보면서 주문서와 타이밍을 맞춰보세요.</p>
+                <p>`현재 상태`, `손님`, `진행도` 세 가지만 보면 충분해요.</p>
               </div>
 
               <div className="guide-section">
                 <strong>성공 보상</strong>
-                <p>성공하면 우주라이크 앱에서 사용할 수 있는 쿠폰 코드가 열려요. 기본 1종, 5% 확률로 3종, 1% 확률로 5종 보상을 받을 수 있어요.</p>
+                <p>하루 5번 도전할 수 있고, 매일 오전 10시에 횟수와 코드가 함께 바뀝니다.</p>
+              </div>
+
+              <div className="guide-section">
+                <strong>쿠폰 규칙</strong>
+                <p>첫 성공은 한정 코드 1개, 이후 성공은 최대 4번까지 랜덤 지급입니다. 추가 보상 안에서 5%와 1% 희귀 코드도 나올 수 있어요.</p>
               </div>
             </div>
           </div>

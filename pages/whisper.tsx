@@ -1,10 +1,15 @@
 import Head from 'next/head'
+import { getCanonicalUrl } from '../lib/site'
 
 export default function MBTI() {
+  const canonicalUrl = getCanonicalUrl('/whisper')
+
   return (
     <>
       <Head>
         <title>귓속말 게임</title>
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:url" content={canonicalUrl} />
       </Head>
 
       <main

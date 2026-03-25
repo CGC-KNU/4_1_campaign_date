@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import Head from 'next/head'
 import { useEffect, useState } from 'react'
+import { getCanonicalUrl } from '../lib/site'
 
 const APP_STORE_URL = 'https://apps.apple.com/kr/app/wouldulike/id6740640251'
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.coggiri.new1'
 
 export default function Home(){
   const [appPrimaryUrl, setAppPrimaryUrl] = useState(PLAY_STORE_URL)
+  const canonicalUrl = getCanonicalUrl('/')
 
   useEffect(()=>{
     if(typeof navigator === 'undefined') return
@@ -21,6 +23,8 @@ export default function Home(){
     <div className="container home-page">
       <Head>
         <title>우주라이크 캠페인</title>
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:url" content={canonicalUrl} />
       </Head>
 
       <section className="mobile-shell home-app-shell">

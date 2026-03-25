@@ -25,7 +25,8 @@ npm run dev
 
 카카오 SDK 설정
 - 카카오 디벨로퍼스에서 JavaScript 키를 발급받아 `.env.local`의 `NEXT_PUBLIC_KAKAO_JS_KEY`에 넣으면 됩니다.
-- 앱 도메인에는 로컬 테스트용 `http://localhost:3000`, `http://localhost:3001`과 모바일 테스트용 `http://192.168.0.5:3001`을 함께 등록해두는 편이 안전합니다.
+- 운영 도메인은 `https://blank-idelle-coggiri-1527fb3e.koyeb.app` 입니다.
+- 앱 도메인에는 운영 도메인 `https://blank-idelle-coggiri-1527fb3e.koyeb.app`와 로컬 테스트용 `http://localhost:3000`, `http://localhost:3001`, 모바일 테스트용 `http://192.168.0.5:3001`을 함께 등록해두는 편이 안전합니다.
 - 설정 후 개발 서버를 다시 실행하면 `미디움 레어로 부탁합니다`의 공유 버튼이 카카오 SDK 공유를 우선 사용합니다.
 
 빌드

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Head from 'next/head'
+import { getCanonicalUrl } from '../lib/site'
 
 type TopicCategory = 'icebreak' | 'balance' | 'flirty' | 'deep' | 'whatif'
 
@@ -266,6 +267,7 @@ function getInitialBalanceStats(): BalanceStats{
 }
 
 export default function Coupons(){
+  const canonicalUrl = getCanonicalUrl('/talkcards')
   const [appPrimaryUrl, setAppPrimaryUrl] = useState(PLAY_STORE_URL)
   const [selectedCategory, setSelectedCategory] = useState<TopicCategory>('icebreak')
   const [cardIndex, setCardIndex] = useState(0)
@@ -410,6 +412,8 @@ export default function Coupons(){
     <div className="container conversation-page date-theme">
       <Head>
         <title>썸·커플 대화 주제</title>
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:url" content={canonicalUrl} />
       </Head>
 
       <div className="heart-bg heart-a" />
