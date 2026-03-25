@@ -60,6 +60,7 @@ declare global {
 const ATTEMPT_STORAGE_KEY = 'meat-daily-attempts-v3'
 const DAILY_LIMIT = 5
 const MAX_EXTRA_REWARDS = 4
+const FORCE_RESET_ATTEMPT_KEYS = new Set(['2026-03-26'])
 
 const ORDERS: Order[] = [
   { id: 'raw', label: '생고기', guest: '빠른 손님', note: '겉만 살짝.', target: 1.2, tolerance: 0.5, difficulty: '쉬움' },
@@ -163,7 +164,7 @@ function normalizeAttemptState(state?: DailyAttemptState | null, resetKey = getC
     return createAttemptState(resetKey)
   }
 
-  return {
+  const normalizedState = {
     resetKey,
     used: state.used ?? 0,
     bonusAttempts: state.bonusAttempts ?? 0,
@@ -174,6 +175,17 @@ function normalizeAttemptState(state?: DailyAttemptState | null, resetKey = getC
     claimedRare: state.claimedRare ?? false,
     claimedLegend: state.claimedLegend ?? false,
   }
+
+  if(FORCE_RESET_ATTEMPT_KEYS.has(resetKey)){
+    return {
+      ...normalizedState,
+      used: 0,
+      bonusAttempts: 0,
+      sharedCount: 0,
+    }
+  }
+
+  return normalizedState
 }
 
 function pickRandomItem<T>(items: T[]){
@@ -666,7 +678,7 @@ export default function MeatGrill(){
     }
 
     if(status === 'success'){
-      const timer = window.setTimeout(()=> setSoldOutUiReady(true), 1700)
+      const timer = window.setTimeout(()=> setSoldOutUiReady(true), 950)
       return ()=> window.clearTimeout(timer)
     }
 
