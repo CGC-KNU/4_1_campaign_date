@@ -60,7 +60,7 @@ declare global {
 const ATTEMPT_STORAGE_KEY = 'meat-daily-attempts-v3'
 const DAILY_LIMIT = 5
 const MAX_EXTRA_REWARDS = 4
-const FORCE_RESET_ATTEMPT_KEYS = new Set(['2026-03-26'])
+const FORCE_RESET_ATTEMPT_KEYS = new Set(['2026-03-25', '2026-03-26'])
 
 const ORDERS: Order[] = [
   { id: 'raw', label: '생고기', guest: '빠른 손님', note: '겉만 살짝.', target: 1.2, tolerance: 0.5, difficulty: '쉬움' },
